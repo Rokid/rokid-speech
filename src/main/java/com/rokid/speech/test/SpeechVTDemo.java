@@ -1,6 +1,6 @@
 package com.rokid.speech.test;
 
-import com.rokid.speech.v1.SpeechVt;
+import com.rokid.speech.v2.SpeechVt;
 import org.testng.annotations.Test;
 
 import java.net.URI;
@@ -14,10 +14,9 @@ import java.net.URISyntaxException;
 public class SpeechVTDemo {
 
     // 以下几个值从rokid开放平台获取或者rokid提供
-
     String key = "";
     String deviceTypeId = "";
-    String version = "1.0";
+    String version = "2.0";
     String secret = "";
     String deviceId = "";
     String url = "wss://apigwws.open.rokid.com/api";
@@ -53,7 +52,9 @@ public class SpeechVTDemo {
         }
         webSock.init(key, deviceTypeId, version, secret, deviceId);
         String path = System.getProperty("user.dir") + "/src/main/resources/files/car.pcm";
-        webSock.sendDataByTime("pcm", "zh", path, "", "100", 0, 1);
+        float voice_power = 100L;
+
+        webSock.sendDataByTime("PCM", "ZH", path, "", voice_power, false, false);
         webSock.close();
     }
 

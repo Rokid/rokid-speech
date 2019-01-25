@@ -1,16 +1,12 @@
-package com.rokid.speech.v1;
+package com.rokid.speech.v2;
 
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.rokid.common.SpeechSign;
 import lombok.extern.slf4j.Slf4j;
-import net.sf.json.JSONObject;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
-import rokid.open.speech.Auth;
-import rokid.open.speech.v1.SpeechTypes;
-import rokid.open.speech.v1.SpeechV1;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import java.io.File;
@@ -23,6 +19,15 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import rokid.open.speech.Auth;
+import rokid.open.speech.v1.SpeechTypes;
+import rokid.open.speech.v1.SpeechTypes.Codec;
+import rokid.open.speech.v1.SpeechTypes.SpeechErrorCode;
+import rokid.open.speech.v2.Speech;
+import rokid.open.speech.v2.Speech.Lang;
+import rokid.open.speech.v2.Speech.RespType;
+import rokid.open.speech.v2.Speech.SpeechOptions;
+import rokid.open.speech.v2.Speech.VadMode;
 
 /**
  * 作者: mashuangwei
@@ -32,10 +37,10 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class SpeechVt extends WebSocketClient {
 
-    SpeechV1.SpeechRequest speechRequestStart;
-    SpeechV1.SpeechRequest speechRequestVoi;
-    SpeechV1.SpeechRequest speechRequestEnd;
-    SpeechV1.SpeechRequest speechRequestText;
+    Speech.SpeechRequest speechRequestStart;
+    Speech.SpeechRequest speechRequestVoi;
+    Speech.SpeechRequest speechRequestEnd;
+    Speech.SpeechRequest speechRequestText;
 
     private CountDownLatch countDownLatch = new CountDownLatch(1);
 
@@ -112,21 +117,24 @@ public class SpeechVt extends WebSocketClient {
      * @param intermediate_asr
      * @param no_nlp
      */
-    public void sendDataByTime(String codec, String language, String fileurl, String activeWords, String voice_power, int intermediate_asr, int no_nlp) {
-        JSONObject jsonObject = new JSONObject();
-        jsonObject.put("voice_power", voice_power);
-        //用户使用时一般也是为0
-        jsonObject.put("trigger_start", "0");
-        //用户使用时一般也是为9600, 这个长度是指语音数据的长度要把激活词包括进来
-        jsonObject.put("trigger_length", "9600");
-        jsonObject.put("voice_trigger", activeWords);
-        jsonObject.put("intermediate_asr", intermediate_asr);
-        jsonObject.put("no_nlp", no_nlp);
+    public void sendDataByTime(String codec, String language, String fileurl, String activeWords, float voice_power, boolean intermediate_asr, boolean no_nlp) {
 
-        log.info("speech client send params: {}", jsonObject.toString());
         Random random = new Random();
         sendId = random.nextInt();
-        speechRequestStart = SpeechV1.SpeechRequest.newBuilder().setId(sendId).setCodec(codec).setLang(language).setType(SpeechTypes.ReqType.START).setFrameworkOptions(jsonObject.toString()).build();
+
+        SpeechOptions.Builder speechOptions = SpeechOptions.newBuilder();
+        speechOptions.setCodec(Codec.valueOf(codec));
+        speechOptions.setLang(Lang.valueOf(language));
+        speechOptions.setVoicePower(voice_power);
+        speechOptions.setTriggerStart(0);
+        speechOptions.setTriggerLength(9600);
+        speechOptions.setVoiceTrigger(activeWords);
+        speechOptions.setNoIntermediateAsr(intermediate_asr);
+        speechOptions.setNoNlp(no_nlp);
+        speechOptions.setVadMode(VadMode.LOCAL);
+
+        speechRequestStart = Speech.SpeechRequest.newBuilder().setId(sendId).setOptions(speechOptions.build()).setType(
+            SpeechTypes.ReqType.START).build();
         this.send(speechRequestStart.toByteArray());
 
         FileInputStream fileInput = null;
@@ -137,7 +145,7 @@ public class SpeechVt extends WebSocketClient {
             int byteread = 0;
             // byteread表示一次读取到buffers中的数量。
             while ((byteread = fileInput.read(buffer)) != -1) {
-                speechRequestVoi = SpeechV1.SpeechRequest.newBuilder().setId(sendId).setCodec(codec).setLang(language).setType(SpeechTypes.ReqType.VOICE).setVoice(ByteString.copyFrom(buffer)).build();
+                speechRequestVoi = Speech.SpeechRequest.newBuilder().setId(sendId).setOptions(speechOptions.build()).setType(SpeechTypes.ReqType.VOICE).setVoice(ByteString.copyFrom(buffer)).build();
                 this.send(speechRequestVoi.toByteArray());
             }
 
@@ -153,7 +161,7 @@ public class SpeechVt extends WebSocketClient {
             }
         }
 
-        speechRequestEnd = SpeechV1.SpeechRequest.newBuilder().setId(sendId).setCodec(codec).setLang(language).setType(SpeechTypes.ReqType.END).build();
+        speechRequestEnd = Speech.SpeechRequest.newBuilder().setId(sendId).setOptions(speechOptions.build()).setType(SpeechTypes.ReqType.END).build();
         this.send(speechRequestEnd.toByteArray());
         try {
             countDownLatch = new CountDownLatch(1);
@@ -172,7 +180,8 @@ public class SpeechVt extends WebSocketClient {
      * @param tts
      */
     public void sendSpeechText(String tts) {
-        speechRequestText = SpeechV1.SpeechRequest.newBuilder().setId(new Random().nextInt()).setLang("zh").setAsr(tts).setType(SpeechTypes.ReqType.TEXT).build();
+
+        speechRequestText = Speech.SpeechRequest.newBuilder().setId(new Random().nextInt()).setAsr(tts).setType(SpeechTypes.ReqType.TEXT).build();
         this.send(speechRequestText.toByteArray());
         try {
             countDownLatch = new CountDownLatch(1);
@@ -197,7 +206,7 @@ public class SpeechVt extends WebSocketClient {
     public void onMessage(ByteBuffer message) {
         byte[] byteMessage = message.array();
         Auth.AuthResponse authResponse = null;
-        SpeechV1.SpeechResponse spResponse;
+        Speech.SpeechResponse spResponse;
 
         //第一次接收到的消息其实都是登录，这边只是巧合可以通过长度可以判断是不是登录。也可以用第一次建立连接后第一次接收消息做为判断auth
         if (byteMessage.length == 2) {
@@ -215,15 +224,16 @@ public class SpeechVt extends WebSocketClient {
             }
         } else {
             try {
-                spResponse = SpeechV1.SpeechResponse.parseFrom(byteMessage);
+                spResponse = Speech.SpeechResponse.parseFrom(byteMessage);
                 log.info("getAction: {}", spResponse.getAction());
                 log.info("getAsr: {}", spResponse.getAsr());
                 log.info("getExtra: {}", spResponse.getExtra());
                 log.info("getNlp: {}", spResponse.getNlp());
                 log.info("getResult: {}", spResponse.getResult());
                 log.info("getResult: {}", spResponse.getResult());
-                log.info("getFinish: {}", spResponse.getFinish());
-                if (spResponse.getFinish()) {
+                log.info("getFinish: {}", spResponse.getType());
+                if (spResponse.getType() == RespType.FINISH
+                    || spResponse.getResult() != SpeechErrorCode.SUCCESS) {
                     countDownLatch.countDown();
                 }
             } catch (InvalidProtocolBufferException e) {
