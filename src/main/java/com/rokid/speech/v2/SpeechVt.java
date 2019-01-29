@@ -145,7 +145,12 @@ public class SpeechVt extends WebSocketClient {
             int byteread = 0;
             // byteread表示一次读取到buffers中的数量。
             while ((byteread = fileInput.read(buffer)) != -1) {
-                speechRequestVoi = Speech.SpeechRequest.newBuilder().setId(sendId).setOptions(speechOptions.build()).setType(SpeechTypes.ReqType.VOICE).setVoice(ByteString.copyFrom(buffer)).build();
+                speechRequestVoi = Speech.SpeechRequest.newBuilder()
+                    .setId(sendId)
+                    .setOptions(speechOptions.build())
+                    .setType(SpeechTypes.ReqType.VOICE)
+                    .setVoice(ByteString.copyFrom(buffer, 0, byteread))
+                    .build();
                 this.send(speechRequestVoi.toByteArray());
             }
 
